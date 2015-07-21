@@ -16,9 +16,9 @@ Wall time
 CPU utilization
 
 # Todo
-1. Create a new MySQL database and an Account table.
-1. Create a script to create N accounts and give everyone the same amount.
-1.
+1. Improve readme with setup and dependencies
+1. error handling
+1. timing and instrumentation - json on GET
 
 
 # Setup
