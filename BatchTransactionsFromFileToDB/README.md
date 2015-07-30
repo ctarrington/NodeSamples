@@ -16,6 +16,10 @@ Wall time
 CPU utilization
 
 # Todo
+1. Avoid excessive memory use
+1. Add instrumentation. Memory, transactions per time, time per transaction, idle time
+1. Handle rollbacks by adding to secondary queue and trying again at end.
+1. Expose instrumentation via JSON API
 1. Improve readme with setup and dependencies
 1. error handling
 1. timing and instrumentation - json on GET
