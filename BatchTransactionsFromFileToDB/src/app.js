@@ -2,10 +2,11 @@ var mysql = require('mysql'),
     config = require('./config.json');
 
 var lineCounter = 0;
+var failureCounter = 0
 var updateCounter = 0;
-var done = false;
+var doneReadingLines = false;
 var maxHeapUsed = 0;
-const POOL_SIZE = 5;
+const POOL_SIZE = 10;
 var connectionsUsed = 0;
 
 var pool  = mysql.createPool({
@@ -19,6 +20,11 @@ var pool  = mysql.createPool({
 
 var LineByLineReader = require('line-by-line'),
     lr = new LineByLineReader('./transactions.txt');
+
+var fatal = function(err) {
+    console.log('Fatal error encountered: '+err);
+    process.exit(-1);
+};
 
 var processLine = function(line) {
     if (connectionsUsed >= POOL_SIZE) {
@@ -34,20 +40,46 @@ var processLine = function(line) {
     pool.getConnection(function(err, connection) {
 
         if (err) {
-            throw err;
+            fatal(err);
         }
 
         connectionsUsed++;
 
         connection.beginTransaction(function (err) {
             if (err) {
-                throw err;
+                fatal(err);
+            }
+
+            var done = function() {
+                connection.release();
+                connectionsUsed--;
+
+                maxHeapUsed = Math.max(maxHeapUsed, process.memoryUsage().heapUsed);
+                console.log('line = '+line+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+ ' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
+
+                if (doneReadingLines && (updateCounter+failureCounter) == lineCounter) {
+                    pool.end();
+                    process.exit(0);
+                }
+
+                lr.resume();
+            };
+
+            var recoverable = function(err, line) {
+                console.log('Recoverable error encountered: '+err+ ' on line: '+line);
+                failureCounter++;
+                done();
+            };
+
+            var success = function() {
+                updateCounter++;
+                done();
             }
 
             connection.query('SELECT * FROM `account` WHERE `id` = ? FOR UPDATE', [fromAccount.id], function (err, results, fields) {
                 if (err) {
                     return connection.rollback(function() {
-                        throw err;
+                        recoverable(err, line);
                     });
                 }
                 fromAccount.balance = results[0].balance;
@@ -55,7 +87,7 @@ var processLine = function(line) {
                 connection.query('SELECT * FROM `account` WHERE `id` = ? FOR UPDATE', [toAccount.id], function (err, results, fields) {
                     if (err) {
                         return connection.rollback(function() {
-                            throw err;
+                            recoverable(err, line);
                         });
                     }
                     toAccount.balance = results[0].balance;
@@ -67,7 +99,7 @@ var processLine = function(line) {
                     connection.query('UPDATE `account` SET `balance` = ? WHERE `id` = ?', [fromAccount.balance - transferAmount, fromAccount.id], function (err, results, fields) {
                         if (err) {
                             return connection.rollback(function() {
-                                throw err;
+                                recoverable(err, line);
                             });
                         }
 
@@ -77,33 +109,19 @@ var processLine = function(line) {
                             connection.commit(function(err) {
                                 if (err) {
                                     return connection.rollback(function() {
-                                        throw err;
+                                        recoverable(err, line);
                                     });
                                 }
-                                connection.release();
-                                connectionsUsed--;
-                                lr.resume();
-                                updateCounter++;
 
-                                console.log('success! lineCounter = '+lineCounter+ ' updateCounter = '+updateCounter);
-                                maxHeapUsed = Math.max(maxHeapUsed, process.memoryUsage().heapUsed);
-                                console.log('maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
-
-                                if (done && lineCounter == updateCounter) {
-                                    pool.end();
-                                    process.exit(0);
-                                }
+                                success();
                             });
-
-
-
                         });
                     });
                 });
             });
         });
     });
-}
+};
 
 lr.on('error', function (err) {
     console.log('error reading file: '+err);
@@ -111,7 +129,7 @@ lr.on('error', function (err) {
 
 lr.on('end', function () {
     console.log('done reading lines');
-    done = true;
+    doneReadingLines = true;
 });
 
 lr.on('line', processLine);
