@@ -18,9 +18,10 @@ CPU utilization
 # Todo
 1. Avoid excessive memory use X
 1. Handle all errors X
+1. Factor out timer and stats to util package
 1. Handle rollbacks by adding to secondary queue and trying again at end.
 1. Improve readme with setup and dependencies
-1. Add instrumentation. Memory, transactions per time, time per transaction, idle time
+1. Add instrumentation. Memory, transactions per time, time per transaction
 1. Expose instrumentation via JSON API
 
 
