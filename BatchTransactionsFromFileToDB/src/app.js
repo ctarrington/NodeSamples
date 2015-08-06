@@ -6,7 +6,7 @@ var failureCounter = 0
 var updateCounter = 0;
 var doneReadingLines = false;
 var maxHeapUsed = 0;
-const POOL_SIZE = 10;
+const POOL_SIZE = 15;
 var connectionsUsed = 0;
 
 function clone(avalue) {
@@ -28,7 +28,7 @@ var stats = function() {
 
     return {
         add: add,
-        stat: getCopy
+        check: getCopy
     };
 };
 
@@ -69,12 +69,31 @@ var wallTimer = startTimer();
 var LineByLineReader = require('line-by-line'),
     lr = new LineByLineReader('./transactions.txt');
 
-var fatal = function(err) {
+var retryList = [];
+
+function fatal(err) {
     console.log('Fatal error encountered: '+err);
     process.exit(-1);
 };
 
+function processFailures() {
+    if (retryList.length > 0) {
+        var lines = retryList.slice(0);
+        retryList = [];
+
+        console.log('retrying ' + JSON.stringify(lines));
+        lines.forEach(processLine);
+
+        console.log('failed on retry for ' + retryList.length);
+        console.log(JSON.stringify(retryList));
+    }
+
+    pool.end();
+    process.exit(0);
+}
+
 var processLine = function(line) {
+    console.log('processing line '+line);
     if (connectionsUsed >= POOL_SIZE) {
         lr.pause();
     }
@@ -105,17 +124,14 @@ var processLine = function(line) {
 
                 var elapsedMillis = transactionTimer.check();
                 transactionStats.add(elapsedMillis);
-                var stat = transactionStats.stat();
-                console.log('stat = '+JSON.stringify(stat));
-                stat.count = 0;
+                console.log('stats = '+JSON.stringify(transactionStats.check()));
                 maxHeapUsed = Math.max(maxHeapUsed, process.memoryUsage().heapUsed);
                 var elapsedWallInSeconds = wallTimer.check()/1000;
                 console.log('elapsedWallInSeconds = '+elapsedWallInSeconds+ ' transactions per second = '+updateCounter /elapsedWallInSeconds);
                 console.log('line = '+line+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+ ' time = '+elapsedMillis/1000+' (sec) maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
 
                 if (doneReadingLines && (updateCounter+failureCounter) == lineCounter) {
-                    pool.end();
-                    process.exit(0);
+                    processFailures();
                 }
 
                 lr.resume();
@@ -123,6 +139,7 @@ var processLine = function(line) {
 
             var recoverable = function(err, line) {
                 console.log('Recoverable error encountered: '+err+ ' on line: '+line);
+                retryList.push(line);
                 failureCounter++;
                 done();
             };
@@ -148,7 +165,10 @@ var processLine = function(line) {
                     }
                     toAccount.balance = results[0].balance;
                     if (fromAccount.balance < transferAmount) {
-                        transferAmount = 0;
+                        return connection.rollback(function() {
+                            console.log('insufficient funds. line = '+line);
+                            recoverable(err, line);
+                        });
                     }
 
 

@@ -9,7 +9,7 @@ for (var ctr = 0;ctr < MAX_TRANSACTIONS; ctr++)
 {
     var account1 = Math.floor(Math.random()*config.data.maxAccounts);
     var account2 = Math.floor(Math.random()*config.data.maxAccounts);
-    var amount = Math.floor(Math.random()*config.data.initialBalance/30);
+    var amount = Math.floor(Math.random()*config.data.initialBalance/10);
 
     if (account1 == account2) { continue; }
 
