@@ -6,42 +6,12 @@ var failureCounter = 0
 var updateCounter = 0;
 var doneReadingLines = false;
 var maxHeapUsed = 0;
-const POOL_SIZE = 15;
+const POOL_SIZE = 10;
 var connectionsUsed = 0;
 
 function clone(avalue) {
     return JSON.parse(JSON.stringify(avalue));
 }
-
-var stats = function() {
-    var data = {count:0, min: Number.MAX_VALUE, max: 0, average: 0};
-
-    function add(value) {
-        data.min = Math.min(data.min, value);
-        data.max = Math.max(data.max, value);
-        data.average = (data.average*data.count+value)/(++data.count)
-    }
-
-    function getCopy() {
-        return clone(data);
-    }
-
-    return {
-        add: add,
-        check: getCopy
-    };
-};
-
-var transactionStats = stats();
-
-
-var performanceData = {
-    wallTime: 0,
-    totalTransactions: 0,
-    successes: 0,
-    failures: 0,
-    transactionsPerSecond: 0
-};
 
 var pool  = mysql.createPool({
     host     : config.db.host,
@@ -51,20 +21,6 @@ var pool  = mysql.createPool({
     waitForConnections: true,
     connectionLimit: POOL_SIZE
 });
-
-// returns a running timer.
-// var timer = startTimer(); var elapsedMillis = timer.check();
-var startTimer = function() {
-    var startTime = new Date().getTime();
-
-    var check = function() {
-        return (new Date().getTime() - startTime);
-    }
-
-    return {check: check};
-};
-
-var wallTimer = startTimer();
 
 var LineByLineReader = require('line-by-line'),
     lr = new LineByLineReader('./transactions.txt');
@@ -110,7 +66,6 @@ var processLine = function(line) {
             fatal(err);
         }
 
-        var transactionTimer = startTimer();
         connectionsUsed++;
 
         connection.beginTransaction(function (err) {
@@ -122,13 +77,8 @@ var processLine = function(line) {
                 connection.release();
                 connectionsUsed--;
 
-                var elapsedMillis = transactionTimer.check();
-                transactionStats.add(elapsedMillis);
-                console.log('stats = '+JSON.stringify(transactionStats.check()));
                 maxHeapUsed = Math.max(maxHeapUsed, process.memoryUsage().heapUsed);
-                var elapsedWallInSeconds = wallTimer.check()/1000;
-                console.log('elapsedWallInSeconds = '+elapsedWallInSeconds+ ' transactions per second = '+updateCounter /elapsedWallInSeconds);
-                console.log('line = '+line+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+ ' time = '+elapsedMillis/1000+' (sec) maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
+                console.log('line = '+line+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' (sec) maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
 
                 if (doneReadingLines && (updateCounter+failureCounter) == lineCounter) {
                     processFailures();
