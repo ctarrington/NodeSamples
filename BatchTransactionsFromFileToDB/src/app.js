@@ -29,7 +29,6 @@ var retryLines = [];
 
 function doRetry()
 {
-    console.log('doRetry updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
     if (retryLines.length == 0 || retryCounter > RETRY_MAX) {
 
         pool.end();
@@ -42,7 +41,6 @@ function doRetry()
     updateCounter = 0;
     doneReadingLines = false;
 
-    console.log('before retry retryLines:' + retryLines.length);
     var lines = retryLines.slice(0);
     lines.reverse();
     retryLines = [];
@@ -55,13 +53,6 @@ function fatal(err) {
     console.log('Fatal error encountered: '+err);
     process.exit(-1);
 };
-
-function showTransaction(from, to, amount)
-{
-    if (retryCounter>0) {
-        console.log('Transfering: '+amount+' '+JSON.stringify(from)+' -> '+JSON.stringify(to));
-    }
-}
 
 function processLine(line) {
     if (retryCounter>0) {
@@ -124,7 +115,6 @@ function processLine(line) {
             };
 
             var success = function() {
-                console.log('success lineCounter = '+lineCounter+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
                 updateCounter++;
                 done();
             }
@@ -150,8 +140,8 @@ function processLine(line) {
                             recoverable(err, line);
                         });
                     }
+
                     toAccount.balance = results[0].balance;
-                    showTransaction(fromAccount, toAccount, transferAmount);
 
                     connection.query('UPDATE `account` SET `balance` = ? WHERE `id` = ?', [fromAccount.balance - transferAmount, fromAccount.id], function (err, results, fields) {
                         if (err) {
@@ -185,7 +175,6 @@ lr.on('error', function (err) {
 });
 
 lr.on('end', function () {
-    console.log('done reading lines');
     doneReadingLines = true;
 });
 
