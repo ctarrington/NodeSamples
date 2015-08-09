@@ -1,17 +1,17 @@
 var mysql = require('mysql'),
     config = require('./config.json');
 
+const POOL_SIZE = 8;
+const RETRY_MAX = 4;
+
+var retryCounter = 0;
 var lineCounter = 0;
 var failureCounter = 0
 var updateCounter = 0;
 var doneReadingLines = false;
 var maxHeapUsed = 0;
-const POOL_SIZE = 10;
-var connectionsUsed = 0;
 
-function clone(avalue) {
-    return JSON.parse(JSON.stringify(avalue));
-}
+var connectionsUsed = 0;
 
 var pool  = mysql.createPool({
     host     : config.db.host,
@@ -25,32 +25,50 @@ var pool  = mysql.createPool({
 var LineByLineReader = require('line-by-line'),
     lr = new LineByLineReader('./transactions.txt');
 
-var retryList = [];
+var retryLines = [];
+
+function doRetry()
+{
+    console.log('doRetry updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
+    if (retryLines.length == 0 || retryCounter > RETRY_MAX) {
+
+        pool.end();
+        process.exit(0);
+    }
+
+    retryCounter++;
+    lineCounter = 0;
+    failureCounter = 0;
+    updateCounter = 0;
+    doneReadingLines = false;
+
+    console.log('before retry retryLines:' + retryLines.length);
+    var lines = retryLines.slice(0);
+    lines.reverse();
+    retryLines = [];
+
+    lines.forEach(processLine);
+    console.log('after retry retryLines ' + retryLines.length);
+}
 
 function fatal(err) {
     console.log('Fatal error encountered: '+err);
     process.exit(-1);
 };
 
-function processFailures() {
-    if (retryList.length > 0) {
-        var lines = retryList.slice(0);
-        retryList = [];
-
-        console.log('retrying ' + JSON.stringify(lines));
-        lines.forEach(processLine);
-
-        console.log('failed on retry for ' + retryList.length);
-        console.log(JSON.stringify(retryList));
+function showTransaction(from, to, amount)
+{
+    if (retryCounter>0) {
+        console.log('Transfering: '+amount+' '+JSON.stringify(from)+' -> '+JSON.stringify(to));
     }
-
-    pool.end();
-    process.exit(0);
 }
 
-var processLine = function(line) {
-    console.log('processing line '+line);
-    if (connectionsUsed >= POOL_SIZE) {
+function processLine(line) {
+    if (retryCounter>0) {
+        console.log('processLine lineCounter = '+lineCounter+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
+    }
+
+    if (connectionsUsed >= POOL_SIZE && retryCounter==0) {
         lr.pause();
     }
 
@@ -78,23 +96,35 @@ var processLine = function(line) {
                 connectionsUsed--;
 
                 maxHeapUsed = Math.max(maxHeapUsed, process.memoryUsage().heapUsed);
-                console.log('line = '+line+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' (sec) maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
+                //console.log('line = '+line+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB');
 
-                if (doneReadingLines && (updateCounter+failureCounter) == lineCounter) {
-                    processFailures();
+                if (retryCounter == 0) {
+                    if (doneReadingLines && (updateCounter+failureCounter) == lineCounter) {
+                        doRetry();
+                    }
+                    lr.resume();
+                } else {
+                    if ((updateCounter+failureCounter) == lineCounter) {
+                        doRetry();
+                    }
                 }
+            };
 
-                lr.resume();
+            var nonrecoverable = function(err, line) {
+                console.log('nonrecoverable lineCounter = '+lineCounter+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
+                failureCounter++;
+                done();
             };
 
             var recoverable = function(err, line) {
-                console.log('Recoverable error encountered: '+err+ ' on line: '+line);
-                retryList.push(line);
+                console.log('recoverable lineCounter = '+lineCounter+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
+                retryLines.push(line);
                 failureCounter++;
                 done();
             };
 
             var success = function() {
+                console.log('success lineCounter = '+lineCounter+ ' updateCounter = '+updateCounter+ ' failureCounter = '+failureCounter+' maxHeapUsed = '+maxHeapUsed/(1024*1024) + 'MB retryLines.length = '+retryLines.length);
                 updateCounter++;
                 done();
             }
@@ -107,6 +137,13 @@ var processLine = function(line) {
                 }
                 fromAccount.balance = results[0].balance;
 
+                if (fromAccount.balance < transferAmount) {
+                    return connection.rollback(function() {
+                        if (retryCounter>0) { console.log('insufficient funds. line = '+line); }
+                        recoverable(err, line);
+                    });
+                }
+
                 connection.query('SELECT * FROM `account` WHERE `id` = ? FOR UPDATE', [toAccount.id], function (err, results, fields) {
                     if (err) {
                         return connection.rollback(function() {
@@ -114,13 +151,7 @@ var processLine = function(line) {
                         });
                     }
                     toAccount.balance = results[0].balance;
-                    if (fromAccount.balance < transferAmount) {
-                        return connection.rollback(function() {
-                            console.log('insufficient funds. line = '+line);
-                            recoverable(err, line);
-                        });
-                    }
-
+                    showTransaction(fromAccount, toAccount, transferAmount);
 
                     connection.query('UPDATE `account` SET `balance` = ? WHERE `id` = ?', [fromAccount.balance - transferAmount, fromAccount.id], function (err, results, fields) {
                         if (err) {
