@@ -64,10 +64,6 @@ function processLine(line) {
     }
 
     lineCounter++;
-    var tokens = (''+line).split(',');
-    var fromAccount = {id: tokens[0], balance: 0};
-    var toAccount = {id: tokens[1], balance: 0};
-    var transferAmount = parseFloat(tokens[2]);
 
     pool.getConnection(function(err, connection) {
 
@@ -118,6 +114,11 @@ function processLine(line) {
                 updateCounter++;
                 done();
             }
+
+            var tokens = (''+line).split(',');
+            var fromAccount = {id: tokens[0], balance: 0};
+            var toAccount = {id: tokens[1], balance: 0};
+            var transferAmount = parseFloat(tokens[2]);
 
             connection.query('SELECT * FROM `account` WHERE `id` = ? FOR UPDATE', [fromAccount.id], function (err, results, fields) {
                 if (err) {
