@@ -1,0 +1,14 @@
+{
+  "name": "try-open-cv",
+  "version": "1.0.0",
+  "description": "sandbox for node and opencv 3",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "opencv": "^3.2.0"
+  }
+}
