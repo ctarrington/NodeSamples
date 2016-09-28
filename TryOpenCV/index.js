@@ -1,11 +1,11 @@
 var cv = require('opencv');
 
-cv.readImage("./node_modules/opencv/examples/files/mona.png", function(err, im){
-  im.detectObject(cv.FACE_CASCADE, {}, function(err, faces){
-    for (var i=0;i<faces.length; i++){
-      var x = faces[i];
-      im.ellipse(x.x + x.width/2, x.y + x.height/2, x.width/2, x.height/2);
-    }
+cv.readImage("./Fig0310(b)(washed_out_pollen_image).png", function(err, im){
+
+    im.convertGrayscale();
+    im.equalizeHist();
+
+
     im.save('./out.jpg');
-  });
+
 });

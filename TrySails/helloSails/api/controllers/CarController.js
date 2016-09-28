@@ -6,6 +6,9 @@
  */
 
 module.exports = {
-	
+  ogre: function(req, res) {
+    res.ok({message: 'fee fi fo fum'});
+  }
+
 };
 
